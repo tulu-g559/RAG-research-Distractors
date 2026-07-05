@@ -1,0 +1,11 @@
+langchain
+langchain-google-genai
+langchain-community
+langchain-openai
+faiss-cpu
+datasets
+pandas
+numpy
+python-dotenv
+tqdm
+jupyter
