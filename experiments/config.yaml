@@ -1,0 +1,24 @@
+embedding_model: text-embedding-3-small
+
+generator_models:
+  gemini:
+    provider: gemini
+    model: gemini-2.5-flash
+  gpt41mini:
+    provider: openrouter
+    model: openai/gpt-4.1-mini
+  llama31:
+    provider: groq
+    model: llama-3.1-8b-instant
+
+top_k: 5
+num_questions: 150
+index_size: 3000
+random_seed: 42
+
+datasets:
+  - squad
+  - hotpot
+
+distractor_count: 0
+distractor_type: none

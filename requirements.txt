@@ -1,11 +1,15 @@
+google-genai
 langchain
 langchain-google-genai
 langchain-community
 langchain-openai
+langchain-groq<1.0.0
+google-genai
 faiss-cpu
 datasets
 pandas
 numpy
 python-dotenv
+pyyaml
 tqdm
-jupyter
+# jupyter

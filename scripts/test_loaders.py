@@ -7,11 +7,11 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from langchain_core.documents import Document
+
 from src.loaders import SquadLoader, HotpotLoader
-from src.embeddings import EmbeddingModel
 
-
-FLAT_SCHEMA_KEYS = {"doc_id", "dataset", "title", "text", "answer", "question"}
+METADATA_KEYS = {"dataset", "question", "answer", "title", "doc_id"}
 
 
 def main() -> None:
@@ -21,8 +21,11 @@ def main() -> None:
 
     squad = SquadLoader()
     squad_docs = squad.load(limit=5)
-    print(f"Returned {len(squad_docs)} document(s)\n")
-    print(json.dumps(squad_docs[0], indent=2, ensure_ascii=False))
+    print(f"Returned {len(squad_docs)} Document(s)\n")
+
+    d: Document = squad_docs[0]
+    print(f"page_content (first 200 chars): {d.page_content[:200]}...")
+    print(f"metadata: {json.dumps(d.metadata, indent=2, ensure_ascii=False)}")
 
     print("\n" + "=" * 70)
     print("HotpotQA Loader — limit=5")
@@ -30,32 +33,30 @@ def main() -> None:
 
     hotpot = HotpotLoader()
     hotpot_docs = hotpot.load(limit=5)
-    print(f"Returned {len(hotpot_docs)} document(s)\n")
-    print(json.dumps(hotpot_docs[0], indent=2, ensure_ascii=False))
+    print(f"Returned {len(hotpot_docs)} Document(s)\n")
+
+    d = hotpot_docs[0]
+    print(f"page_content (first 200 chars): {d.page_content[:200]}...")
+    print(f"metadata: {json.dumps(d.metadata, indent=2, ensure_ascii=False)}")
 
     print("\n" + "=" * 70)
     print("Schema Verification")
     print("=" * 70)
 
     for label, docs in [("squad", squad_docs), ("hotpot", hotpot_docs)]:
-        for d in docs:
-            assert set(d.keys()) == FLAT_SCHEMA_KEYS, (
-                f"{label}: got keys {set(d.keys())}, "
-                f"expected {FLAT_SCHEMA_KEYS}"
+        for doc in docs:
+            assert isinstance(doc, Document), f"{label}: not a Document"
+            assert set(doc.metadata.keys()) == METADATA_KEYS, (
+                f"{label}: got keys {set(doc.metadata.keys())}, "
+                f"expected {METADATA_KEYS}"
             )
-            assert isinstance(d["doc_id"], str), f"{label}: doc_id not str"
-            assert d["dataset"] in ("squad", "hotpot"), f"{label}: bad dataset"
-            assert isinstance(d["title"], str), f"{label}: title not str"
-            assert isinstance(d["text"], str), f"{label}: text not str"
-            assert isinstance(d["answer"], str), f"{label}: answer not str"
-            assert isinstance(d["question"], str), f"{label}: question not str"
-    print("All flat-schema checks passed ✓")
-
-    print("\n" + "=" * 70)
-    print("EmbeddingModel interface check")
-    print("=" * 70)
-    assert EmbeddingModel.embed.__isabstractmethod__
-    print("EmbeddingModel.embed is abstract ✓")
+            assert isinstance(doc.metadata["doc_id"], str), f"{label}: doc_id not str"
+            assert doc.metadata["dataset"] in ("squad", "hotpot"), f"{label}: bad dataset"
+            assert isinstance(doc.metadata["title"], str), f"{label}: title not str"
+            assert isinstance(doc.metadata["answer"], str), f"{label}: answer not str"
+            assert isinstance(doc.metadata["question"], str), f"{label}: question not str"
+            assert isinstance(doc.page_content, str), f"{label}: page_content not str"
+    print("All Document-schema checks passed \u2713")
 
 
 if __name__ == "__main__":
