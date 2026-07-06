@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
 
 from .base import BaseGenerator
@@ -15,12 +16,13 @@ PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
-
 class GroqGenerator(BaseGenerator):
     def __init__(self, model: str = "llama-3.1-8b-instant"):
         self._llm = ChatGroq(model=model, max_tokens=512)
+        # Chain prompt, llm, and parser
+        self._chain = PROMPT | self._llm | StrOutputParser()
 
     def generate(self, question: str, context: str) -> str:
-        messages = PROMPT.format_messages(question=question, context=context)
-        response = self._llm.invoke(messages)
-        return response.content.strip()
+        # Invoke chain directly with dict
+        response = self._chain.invoke({"question": question, "context": context})
+        return response.strip()

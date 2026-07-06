@@ -3,7 +3,7 @@ embedding_model: text-embedding-3-small
 generator_models:
   gemini:
     provider: gemini
-    model: gemini-2.5-flash
+    model: gemini-2.0-flash
   gpt41mini:
     provider: openrouter
     model: openai/gpt-4.1-mini
@@ -12,7 +12,7 @@ generator_models:
     model: llama-3.1-8b-instant
 
 top_k: 5
-num_questions: 150
+num_questions: 10
 index_size: 3000
 random_seed: 42
 
@@ -20,5 +20,13 @@ datasets:
   - squad
   - hotpot
 
-distractor_count: 0
-distractor_type: none
+distractor_count:
+  - 0
+  - 1
+  - 3
+  - 5
+
+distractor_type:
+  - topical
+  - hard_negative
+  - paraphrased_contradiction

@@ -19,14 +19,21 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 
 class OpenRouterGenerator(BaseGenerator):
-    def __init__(self, model: str = "openai/gpt-4.1-mini"):
+    def __init__(self, model: str = "openai/gpt-4o-mini"):
         self._llm = ChatOpenAI(
             model=model,
             base_url=OPENROUTER_BASE,
-            max_tokens=512,
+            max_completion_tokens=512,
         )
 
     def generate(self, question: str, context: str) -> str:
-        messages = PROMPT.format_messages(question=question, context=context)
+        messages = PROMPT.invoke({"question": question, "context": context})
         response = self._llm.invoke(messages)
-        return response.content.strip()
+        
+        content = response.content
+        if isinstance(content, list):
+            content = content[0] if content else ""
+        if isinstance(content, dict):
+            content = content.get("content", "")
+            
+        return str(content).strip()

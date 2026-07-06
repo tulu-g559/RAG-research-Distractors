@@ -29,6 +29,8 @@ class VectorStore:
         return cls(index, provider)
 
     def save_local(self, path: str | Path = DEFAULT_PERSIST_DIR) -> None:
+        if self._index is None:
+            raise ValueError("Cannot save: FAISS index is None.")
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         self._index.save_local(str(path))
@@ -46,7 +48,15 @@ class VectorStore:
         return cls(index, provider)
 
     def as_retriever(self, k: int = 5):
+        if self._index is None:
+            raise ValueError("Cannot create retriever: FAISS index is None.")
         return self._index.as_retriever(search_kwargs={"k": k})
 
     def similarity_search_with_score(self, query: str, k: int = 5):
+        if self._index is None:
+            raise ValueError("Cannot search: FAISS index is None.")
         return self._index.similarity_search_with_score(query, k=k)
+
+
+def load_vectorstore(path: str | Path = DEFAULT_PERSIST_DIR) -> VectorStore:
+    return VectorStore.load_local(path)

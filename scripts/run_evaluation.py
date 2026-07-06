@@ -17,8 +17,10 @@ load_dotenv()
 import yaml
 
 from src.cache import ResponseCache
+from src.distractors import DistractorInjector
 from src.embeddings import create_embedding_provider
 from src.evaluation import exact_match, f1_score, normalize
+from src.generators import GeminiGenerator
 from src.loaders import HotpotLoader, SquadLoader
 from src.retriever import Retriever
 from src.vectorstore import VectorStore
@@ -80,8 +82,8 @@ def main() -> None:
     index_size = config["index_size"]
     random_seed = config["random_seed"]
     datasets = config["datasets"]
-    distractor_count = config.get("distractor_count", 0)
-    distractor_type = config.get("distractor_type", "none")
+    distractor_counts = config.get("distractor_count", [0])
+    distractor_types = config.get("distractor_type", ["topical"])
 
     experiment_id = f"baseline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     timestamp = datetime.now().isoformat()
@@ -96,7 +98,8 @@ def main() -> None:
     print(f"  timestamp     : {timestamp}")
     print(f"  git_commit    : {git_commit}")
     print(f"  config        : {CONFIG_PATH}")
-    print(f"  distractor    : {distractor_type} ({distractor_count})")
+    print(f"  distractor_counts : {distractor_counts}")
+    print(f"  distractor_types  : {distractor_types}")
     print()
     print("CONFIG")
     print(f"  embedding_model : {embedding_model}")
@@ -152,10 +155,16 @@ def main() -> None:
 
     retriever = Retriever(vector_store, k=top_k)
 
+    injector = DistractorInjector(
+        vector_store=vector_store,
+        llm_generator=GeminiGenerator(),
+        random_seed=random_seed,
+    )
+
     recall_k_values = [5, 10]
     retrieve_k = max(top_k, max(recall_k_values))
 
-    from src.generators import GeminiGenerator, GroqGenerator, OpenRouterGenerator
+    from src.generators import GroqGenerator, OpenRouterGenerator
 
     provider_map = {
         "gemini": GeminiGenerator,
@@ -192,9 +201,6 @@ def main() -> None:
             doc.metadata.get("doc_id", "?") for doc in retrieved_docs
         ]
 
-        context_docs = docs_with_scores[:top_k]
-        context = "\n\n".join(d.page_content for d, _ in context_docs)
-
         per_q_recall = {
             "dataset": dataset,
             "question": question,
@@ -219,56 +225,76 @@ def main() -> None:
         top_k_scores = retrieved_scores[:top_k]
         top_k_ids = retrieved_doc_ids[:top_k]
 
-        for key in model_keys:
-            t0 = time.time()
-            cached = cache.get(question, context, key)
-            if cached is not None:
-                pred = cached
-                cached_hit = True
-            else:
-                try:
-                    pred = generators[key].generate(
-                        question=question, context=context
+        gold_passage = docs_with_scores[0][0]
+
+        for dcount in distractor_counts:
+            types_to_run = distractor_types if dcount > 0 else ["none"]
+            for dtype in types_to_run:
+                if dcount > 0:
+                    context, inject_meta = injector.inject(
+                        question=question,
+                        gold_passage=gold_passage,
+                        distractor_count=dcount,
+                        distractor_type=dtype,
                     )
-                except Exception as e:
-                    pred = f"[{key} error: {e}]"
-                cache.set(question, context, key, pred)
-                cached_hit = False
-            latency_ms = round((time.time() - t0) * 1000)
+                    actual_type = dtype
+                    actual_count = dcount
+                else:
+                    context = gold_passage.page_content
+                    actual_type = "none"
+                    actual_count = 0
 
-            em = exact_match(pred, ground_truth)
-            f1 = f1_score(pred, ground_truth)
+                print(f"\n  --- distractors: {actual_type} x{actual_count} ---")
 
-            tag = " [CACHED]" if cached_hit else ""
-            print(f"  [{key}]{tag} {pred[:150]}")
-            print(f"         EM={1 if em else 0}  F1={f1:.4f}  {latency_ms}ms")
+                for key in model_keys:
+                    t0 = time.time()
+                    cached = cache.get(question, context, key)
+                    if cached is not None:
+                        pred = cached
+                        cached_hit = True
+                    else:
+                        try:
+                            pred = generators[key].generate(
+                                question=question, context=context
+                            )
+                        except Exception as e:
+                            pred = f"[{key} error: {e}]"
+                        cache.set(question, context, key, pred)
+                        cached_hit = False
+                    latency_ms = round((time.time() - t0) * 1000)
 
-            all_results.append(
-                {
-                    "experiment_id": experiment_id,
-                    "timestamp": timestamp,
-                    "git_commit": git_commit,
-                    "dataset": dataset,
-                    "question": question,
-                    "ground_truth": ground_truth,
-                    "retrieved_doc_ids": ";".join(top_k_ids),
-                    "retrieved_scores": ";".join(
-                        f"{s:.4f}" for s in top_k_scores
-                    ),
-                    "retrieved_context": context,
-                    "prediction": pred,
-                    "model": key,
-                    "distractor_type": distractor_type,
-                    "distractor_count": str(distractor_count),
-                    "em": "1" if em else "0",
-                    "f1": f"{f1:.4f}",
-                    "faithfulness": "",
-                    "latency_ms": f"{latency_ms}",
-                    "cached": "1" if cached_hit else "0",
-                    "recall@5": str(recall_at_5),
-                    "recall@10": str(recall_at_10),
-                }
-            )
+                    em = exact_match(pred, ground_truth)
+                    f1 = f1_score(pred, ground_truth)
+
+                    tag = " [CACHED]" if cached_hit else ""
+                    print(f"  [{key}]{tag} EM={1 if em else 0}  F1={f1:.4f}  {latency_ms}ms")
+
+                    all_results.append(
+                        {
+                            "experiment_id": experiment_id,
+                            "timestamp": timestamp,
+                            "git_commit": git_commit,
+                            "dataset": dataset,
+                            "question": question,
+                            "ground_truth": ground_truth,
+                            "retrieved_doc_ids": ";".join(top_k_ids),
+                            "retrieved_scores": ";".join(
+                                f"{s:.4f}" for s in top_k_scores
+                            ),
+                            "retrieved_context": context,
+                            "prediction": pred,
+                            "model": key,
+                            "distractor_type": actual_type,
+                            "distractor_count": str(actual_count),
+                            "em": "1" if em else "0",
+                            "f1": f"{f1:.4f}",
+                            "faithfulness": "",
+                            "latency_ms": f"{latency_ms}",
+                            "cached": "1" if cached_hit else "0",
+                            "recall@5": str(recall_at_5),
+                            "recall@10": str(recall_at_10),
+                        }
+                    )
 
     print(f"\n{'=' * 70}")
     print("RETRIEVAL SUMMARY")
@@ -279,17 +305,30 @@ def main() -> None:
             print(f"  Recall@{k_val:<3}: {hits}/{total} = {hits / total:.2%}")
 
     print(f"\n{'=' * 70}")
-    print("GENERATION SUMMARY PER MODEL")
+    print("GENERATION SUMMARY PER MODEL x DISTRACTOR")
+    header = f"  {'model':15s}  {'dcount':6s}  {'dtype':25s}  {'EM':6s}  {'F1':6s}  {'Lat':6s}"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
     for key in model_keys:
-        model_results = [r for r in all_results if r["model"] == key]
-        ems = [int(r["em"]) for r in model_results]
-        f1s = [float(r["f1"]) for r in model_results]
-        lats = [float(r["latency_ms"]) for r in model_results]
-        print(
-            f"  {key:15s}  EM={sum(ems) / len(ems):.2f}  "
-            f"F1={sum(f1s) / len(f1s):.3f}  "
-            f"Lat={sum(lats) / len(lats):.0f}ms"
-        )
+        for dc in distractor_counts:
+            types_to_print = distractor_types if dc > 0 else ["none"]
+            for dt in types_to_print:
+                subset = [
+                    r for r in all_results
+                    if r["model"] == key
+                    and int(r["distractor_count"]) == dc
+                    and r["distractor_type"] == dt
+                ]
+                if not subset:
+                    continue
+                ems = [int(r["em"]) for r in subset]
+                f1s = [float(r["f1"]) for r in subset]
+                lats = [float(r["latency_ms"]) for r in subset]
+                print(
+                    f"  {key:15s}  {dc:<6d}  {dt:25s}  "
+                    f"{sum(ems) / len(ems):<6.2f}  {sum(f1s) / len(f1s):<6.3f}  "
+                    f"{sum(lats) / len(lats):<6.0f}ms"
+                )
 
     RESULTS_DIR.mkdir(exist_ok=True)
     csv_path = RESULTS_DIR / "baseline.csv"
