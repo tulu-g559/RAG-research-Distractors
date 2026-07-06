@@ -22,7 +22,12 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         )
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        return self._impl.embed_documents(texts)
+        batch_size = 100
+        all_embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            all_embeddings.extend(self._impl.embed_documents(batch))
+        return all_embeddings
 
     @lru_cache(maxsize=1024)
     def embed_query(self, text: str) -> List[float]:

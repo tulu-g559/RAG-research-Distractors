@@ -11,7 +11,7 @@ from langchain_core.documents import Document
 
 from src.loaders import SquadLoader, HotpotLoader
 
-METADATA_KEYS = {"dataset", "question", "answer", "title", "doc_id"}
+METADATA_KEYS = {"dataset", "question", "answer", "title", "doc_id", "questions"}
 
 
 def main() -> None:
@@ -26,6 +26,7 @@ def main() -> None:
     d: Document = squad_docs[0]
     print(f"page_content (first 200 chars): {d.page_content[:200]}...")
     print(f"metadata: {json.dumps(d.metadata, indent=2, ensure_ascii=False)}")
+    print(f"Number of QAs for this paragraph: {len(d.metadata['questions'])}")
 
     print("\n" + "=" * 70)
     print("HotpotQA Loader — limit=5")
@@ -38,6 +39,7 @@ def main() -> None:
     d = hotpot_docs[0]
     print(f"page_content (first 200 chars): {d.page_content[:200]}...")
     print(f"metadata: {json.dumps(d.metadata, indent=2, ensure_ascii=False)}")
+    print(f"Number of QAs for this paragraph: {len(d.metadata['questions'])}")
 
     print("\n" + "=" * 70)
     print("Schema Verification")
@@ -55,6 +57,8 @@ def main() -> None:
             assert isinstance(doc.metadata["title"], str), f"{label}: title not str"
             assert isinstance(doc.metadata["answer"], str), f"{label}: answer not str"
             assert isinstance(doc.metadata["question"], str), f"{label}: question not str"
+            assert isinstance(doc.metadata["questions"], list), f"{label}: questions not list"
+            assert len(doc.metadata["questions"]) > 0, f"{label}: empty questions"
             assert isinstance(doc.page_content, str), f"{label}: page_content not str"
     print("All Document-schema checks passed \u2713")
 

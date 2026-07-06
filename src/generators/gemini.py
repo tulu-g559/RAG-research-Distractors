@@ -7,7 +7,7 @@ from .base import BaseGenerator
 
 
 class GeminiGenerator(BaseGenerator):
-    def __init__(self, model: str = "gemini-2.0-flash", max_retries: int = 3):
+    def __init__(self, model: str = "gemini-2.5-flash-lite", max_retries: int = 3):
         self._client = genai.Client()
         self._model = model
         self._max_retries = max_retries

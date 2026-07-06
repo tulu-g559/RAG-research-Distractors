@@ -6,7 +6,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import yaml
+from langchain_core.documents import Document
 
 from src.cache import ResponseCache
 from src.distractors import DistractorInjector
@@ -33,24 +34,6 @@ RESULTS_DIR = Path("results")
 def load_config(path: Path) -> dict:
     with open(path, "r") as f:
         return yaml.safe_load(f)
-
-
-def unique_questions(
-    docs, dataset: str, n: int
-) -> List[Tuple[str, str, str, str]]:
-    seen = OrderedDict()
-    for doc in docs:
-        q = doc.metadata["question"]
-        if q not in seen:
-            seen[q] = (
-                dataset,
-                q,
-                doc.metadata["answer"],
-                doc.metadata["doc_id"],
-            )
-        if len(seen) >= n:
-            break
-    return list(seen.values())
 
 
 def answer_in_context(answer: str, docs) -> bool:
@@ -78,8 +61,14 @@ def main() -> None:
     embedding_model = config["embedding_model"]
     generator_models = config["generator_models"]
     top_k = config["top_k"]
-    num_questions = config["num_questions"]
-    index_size = config["index_size"]
+    raw_num_questions = config["num_questions"]
+    if isinstance(raw_num_questions, dict):
+        max_questions = max(raw_num_questions.values())
+        per_model_nq = raw_num_questions
+    else:
+        max_questions = raw_num_questions
+        per_model_nq = {}
+    index_size = config.get("index_size", 3000)
     random_seed = config["random_seed"]
     datasets = config["datasets"]
     distractor_counts = config.get("distractor_count", [0])
@@ -105,53 +94,58 @@ def main() -> None:
     print(f"  embedding_model : {embedding_model}")
     print(f"  generator_models: {list(generator_models.keys())}")
     print(f"  top_k           : {top_k}")
-    print(f"  num_questions   : {num_questions}")
+    print(f"  max_questions   : {max_questions}")
+    if per_model_nq:
+        print(f"  per_model_limit : {per_model_nq}")
     print(f"  index_size      : {index_size}")
     print(f"  random_seed     : {random_seed}")
     print(f"  datasets        : {datasets}")
+    print(f"  (index built from ALL unique paragraphs — no train/test doc split)")
 
     random.seed(random_seed)
 
     embedding_provider = create_embedding_provider(embedding_model)
 
-    load_configs = {
-        "squad": (SquadLoader, index_size + num_questions * 5),
-        "hotpot": (HotpotLoader, index_size + num_questions * 15),
+    load_configs: Dict[str, Tuple] = {
+        "squad": (SquadLoader, index_size + max_questions * 5),
+        "hotpot": (HotpotLoader, index_size + max_questions * 15),
     }
 
-    all_index_docs = []
-    test_questions = []
+    all_index_docs: List[Document] = []
+    question_to_gold: OrderedDict = OrderedDict()
 
     for ds_name in datasets:
         loader_cls, load_limit = load_configs[ds_name]
-        print(f"\nLoading {ds_name}...")
-        all_docs = loader_cls().load(limit=load_limit)
-        print(f"  {len(all_docs)} docs loaded")
-        random.shuffle(all_docs)
+        print(f"\nLoading {ds_name} (limit={load_limit})...")
+        docs = loader_cls().load(limit=load_limit)
+        print(f"  {len(docs)} unique paragraphs loaded")
 
-        index_docs = all_docs[:index_size]
-        test_candidates = all_docs[index_size:]
+        for doc in docs:
+            all_index_docs.append(doc)
+            for qa in doc.metadata["questions"]:
+                q = qa["question"]
+                if q not in question_to_gold:
+                    question_to_gold[q] = {
+                        "dataset": ds_name,
+                        "question": q,
+                        "answer": qa["answer"],
+                        "doc_id": doc.metadata["doc_id"],
+                        "gold_passage": doc.page_content,
+                        "gold_title": doc.metadata.get("title", ""),
+                    }
 
-        all_index_docs.extend(index_docs)
-        tests = unique_questions(test_candidates, ds_name, num_questions)
-        test_questions.extend(tests)
-        print(f"  Index docs: {len(index_docs)} | Test questions: {len(tests)}")
+    print(f"\nTotal unique paragraphs in index: {len(all_index_docs)}")
+    print(f"Total unique questions available: {len(question_to_gold)}")
 
-    print(f"\nTotal index docs: {len(all_index_docs)}")
-    print(f"Total test questions: {len(test_questions)}")
+    test_questions = list(question_to_gold.values())[:max_questions]
+    print(f"Test questions sampled: {len(test_questions)}")
 
-    if faiss_path.exists():
-        print(f"\nLoading FAISS index from {faiss_path} ...")
-        vector_store = VectorStore.load_local(
-            faiss_path, embedding_provider=embedding_provider
-        )
-    else:
-        print(f"\nBuilding FAISS index from {len(all_index_docs)} documents ...")
-        vector_store = VectorStore.from_documents(
-            all_index_docs, embedding_provider=embedding_provider
-        )
-        vector_store.save_local(faiss_path)
-        print(f"Index saved to {faiss_path}")
+    print(f"\nBuilding FAISS index from {len(all_index_docs)} paragraphs ...")
+    vector_store = VectorStore.from_documents(
+        all_index_docs, embedding_provider=embedding_provider
+    )
+    vector_store.save_local(faiss_path)
+    print(f"Index saved to {faiss_path}")
 
     retriever = Retriever(vector_store, k=top_k)
 
@@ -181,11 +175,26 @@ def main() -> None:
     all_results = []
     recall_results = []
 
-    for i, (dataset, question, ground_truth, _) in enumerate(
-        test_questions, 1
-    ):
+    for question_index, qt in enumerate(test_questions, 1):
+        dataset = qt["dataset"]
+        question = qt["question"]
+        ground_truth = qt["answer"]
+        gold_doc_id = qt["doc_id"]
+        gold_content = qt["gold_passage"]
+
+        gold_passage = Document(
+            page_content=gold_content,
+            metadata={
+                "dataset": dataset,
+                "question": question,
+                "answer": ground_truth,
+                "doc_id": gold_doc_id,
+                "title": qt.get("gold_title", ""),
+            },
+        )
+
         print(f"\n{'=' * 70}")
-        print(f"[{i}/{len(test_questions)}] {dataset.upper()}")
+        print(f"[{question_index}/{len(test_questions)}] {dataset.upper()}")
         print(f"Q: {question}")
         print(f"GT: {ground_truth}")
 
@@ -217,15 +226,16 @@ def main() -> None:
         recall_at_5 = per_q_recall["recall@5"]
         recall_at_10 = per_q_recall["recall@10"]
 
-        print(f"  Retrieval: {retrieve_latency}ms")
-        print(f"  Recall@5 : {recall_at_5}  Recall@10: {recall_at_10}")
-        print(f"  Doc IDs : {retrieved_doc_ids[:top_k]}")
-        print(f"  Scores  : {[f'{s:.4f}' for s in retrieved_scores[:top_k]]}")
+        gold_in_top_k = answer_in_context(ground_truth, retrieved_docs)
+
+        print(f"  Retrieval:   {retrieve_latency}ms")
+        print(f"  Recall@5:    {recall_at_5}  Recall@10: {recall_at_10}")
+        print(f"  Gold in top-{retrieve_k}: {gold_in_top_k}")
+        print(f"  Doc IDs:     {retrieved_doc_ids[:top_k]}")
+        print(f"  Scores:      {[f'{s:.4f}' for s in retrieved_scores[:top_k]]}")
 
         top_k_scores = retrieved_scores[:top_k]
         top_k_ids = retrieved_doc_ids[:top_k]
-
-        gold_passage = docs_with_scores[0][0]
 
         for dcount in distractor_counts:
             types_to_run = distractor_types if dcount > 0 else ["none"]
@@ -247,6 +257,9 @@ def main() -> None:
                 print(f"\n  --- distractors: {actual_type} x{actual_count} ---")
 
                 for key in model_keys:
+                    model_limit = per_model_nq.get(key, max_questions)
+                    if question_index > model_limit:
+                        continue
                     t0 = time.time()
                     cached = cache.get(question, context, key)
                     if cached is not None:
@@ -277,6 +290,7 @@ def main() -> None:
                             "dataset": dataset,
                             "question": question,
                             "ground_truth": ground_truth,
+                            "question_index": str(question_index),
                             "retrieved_doc_ids": ";".join(top_k_ids),
                             "retrieved_scores": ";".join(
                                 f"{s:.4f}" for s in top_k_scores
@@ -298,6 +312,7 @@ def main() -> None:
 
     print(f"\n{'=' * 70}")
     print("RETRIEVAL SUMMARY")
+    print(f"{'=' * 70}")
     if recall_results:
         for k_val in recall_k_values:
             hits = sum(r[f"recall@{k_val}"] for r in recall_results)
@@ -306,6 +321,7 @@ def main() -> None:
 
     print(f"\n{'=' * 70}")
     print("GENERATION SUMMARY PER MODEL x DISTRACTOR")
+    print(f"{'=' * 70}")
     header = f"  {'model':15s}  {'dcount':6s}  {'dtype':25s}  {'EM':6s}  {'F1':6s}  {'Lat':6s}"
     print(header)
     print("  " + "-" * (len(header) - 2))
@@ -314,7 +330,8 @@ def main() -> None:
             types_to_print = distractor_types if dc > 0 else ["none"]
             for dt in types_to_print:
                 subset = [
-                    r for r in all_results
+                    r
+                    for r in all_results
                     if r["model"] == key
                     and int(r["distractor_count"]) == dc
                     and r["distractor_type"] == dt
@@ -338,6 +355,7 @@ def main() -> None:
         "git_commit",
         "dataset",
         "question",
+        "question_index",
         "ground_truth",
         "retrieved_doc_ids",
         "retrieved_scores",
@@ -362,6 +380,7 @@ def main() -> None:
 
     print(f"\n{'=' * 70}")
     print("EM ≈ 0 ANALYSIS")
+    print(f"{'=' * 70}")
     total = len(all_results)
     em_zero = [r for r in all_results if r["em"] == "0"]
     em_zero_f1_pos = [r for r in em_zero if float(r["f1"]) > 0]
@@ -382,19 +401,6 @@ def main() -> None:
         f" ({pct_ret_fail:.0f}%)"
     )
     print()
-    print("  Diagnosis:")
-    print("  - Most EM=0 cases have F1>0: models generate full sentences")
-    print("    instead of the exact answer phrase.")
-    print("  - Some EM=0 cases stem from retrieval failure")
-    print("    (answer not present in top-5 retrieved docs).")
-    print("  - SQuAD v2.0 unanswerable questions also contribute")
-    print("    (models write refusals instead of empty string).")
-    print("  - These factors together explain the near-zero average EM.")
-    print()
-    print("  Next steps:")
-    print("  - Improve retrieval quality (re-ranking, better embeddings).")
-    print("  - Add a prompt instruction for concise answers.")
-    print("  - Consider lenient EM (answer substring in prediction).")
 
 
 if __name__ == "__main__":
