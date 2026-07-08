@@ -3,10 +3,11 @@ import random
 import subprocess
 import sys
 import time
-from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set
+
+from langchain_core.documents import Document
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -15,7 +16,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import yaml
-from langchain_core.documents import Document
 
 from src.cache import ResponseCache
 from src.distractors import DistractorInjector
@@ -61,16 +61,9 @@ def main() -> None:
     embedding_model = config["embedding_model"]
     generator_models = config["generator_models"]
     top_k = config["top_k"]
-    raw_num_questions = config["num_questions"]
-    if isinstance(raw_num_questions, dict):
-        max_questions = max(raw_num_questions.values())
-        per_model_nq = raw_num_questions
-    else:
-        max_questions = raw_num_questions
-        per_model_nq = {}
-    index_size = config.get("index_size", 3000)
+    per_model_nq = config["num_questions"]
+    max_questions = max(per_model_nq.values())
     random_seed = config["random_seed"]
-    datasets = config["datasets"]
     distractor_counts = config.get("distractor_count", [0])
     distractor_types = config.get("distractor_type", ["topical"])
 
@@ -94,58 +87,114 @@ def main() -> None:
     print(f"  embedding_model : {embedding_model}")
     print(f"  generator_models: {list(generator_models.keys())}")
     print(f"  top_k           : {top_k}")
-    print(f"  max_questions   : {max_questions}")
-    if per_model_nq:
-        print(f"  per_model_limit : {per_model_nq}")
-    print(f"  index_size      : {index_size}")
+    print(f"  per_model_limit : {per_model_nq}")
     print(f"  random_seed     : {random_seed}")
-    print(f"  datasets        : {datasets}")
-    print(f"  (index built from ALL unique paragraphs — no train/test doc split)")
 
     random.seed(random_seed)
 
     embedding_provider = create_embedding_provider(embedding_model)
+    dataset_subset = config["dataset_subset"]
 
-    load_configs: Dict[str, Tuple] = {
-        "squad": (SquadLoader, index_size + max_questions * 5),
-        "hotpot": (HotpotLoader, index_size + max_questions * 15),
+    rng = random.Random(random_seed)
+    all_eval_questions: List[dict] = []
+    all_index_docs: List[Document] = []
+
+    print(f"\n{'=' * 70}")
+    print("DATASET SUBSET CONSTRUCTION")
+    print(f"{'=' * 70}")
+
+    loader_map = {
+        "squad": SquadLoader,
+        "hotpot": HotpotLoader,
     }
 
-    all_index_docs: List[Document] = []
-    question_to_gold: OrderedDict = OrderedDict()
+    for ds_name, subset_cfg in dataset_subset.items():
+        target_docs = subset_cfg["documents"]
+        target_questions = subset_cfg["questions"]
 
-    for ds_name in datasets:
-        loader_cls, load_limit = load_configs[ds_name]
-        print(f"\nLoading {ds_name} (limit={load_limit})...")
-        docs = loader_cls().load(limit=load_limit)
-        print(f"  {len(docs)} unique paragraphs loaded")
+        print(f"\n{ds_name.upper()}")
+        print("-" * len(ds_name) + "--------")
 
+        loader_cls = loader_map[ds_name]
+        docs = loader_cls().load(limit=None)
+
+        all_questions: List[dict] = []
+        doc_by_content: Dict[str, Document] = {}
         for doc in docs:
-            all_index_docs.append(doc)
+            doc_by_content[doc.page_content] = doc
             for qa in doc.metadata["questions"]:
-                q = qa["question"]
-                if q not in question_to_gold:
-                    question_to_gold[q] = {
-                        "dataset": ds_name,
-                        "question": q,
-                        "answer": qa["answer"],
-                        "doc_id": doc.metadata["doc_id"],
-                        "gold_passage": doc.page_content,
-                        "gold_title": doc.metadata.get("title", ""),
-                    }
+                all_questions.append({
+                    "dataset": ds_name,
+                    "question": qa["question"],
+                    "answer": qa["answer"],
+                    "doc_id": doc.metadata["doc_id"],
+                    "gold_passage": doc.page_content,
+                    "gold_title": doc.metadata.get("title", ""),
+                })
 
-    print(f"\nTotal unique paragraphs in index: {len(all_index_docs)}")
-    print(f"Total unique questions available: {len(question_to_gold)}")
+        selected_questions = rng.sample(all_questions, target_questions)
+        gold_docs: List[Document] = []
+        gold_contents: Set[str] = set()
+        for q in selected_questions:
+            content = q["gold_passage"]
+            if content not in gold_contents:
+                gold_contents.add(content)
+                gold_docs.append(doc_by_content[content])
 
-    test_questions = list(question_to_gold.values())[:max_questions]
-    print(f"Test questions sampled: {len(test_questions)}")
+        filler_needed = target_docs - len(gold_docs)
+        filler_docs: List[Document] = []
+        if filler_needed > 0:
+            candidates = [d for d in docs if d.page_content not in gold_contents]
+            filler_docs = rng.sample(candidates, filler_needed)
 
-    print(f"\nBuilding FAISS index from {len(all_index_docs)} paragraphs ...")
+        ds_index_docs = gold_docs + filler_docs
+        all_index_docs.extend(ds_index_docs)
+        all_eval_questions.extend(selected_questions)
+
+        print(f"  Questions selected: {target_questions}")
+        print(f"  Unique gold paragraphs: {len(gold_docs)}")
+        print(f"  Random filler paragraphs: {filler_needed}")
+        print(f"  Final indexed paragraphs: {len(ds_index_docs)}")
+
+    print(f"\n  Total indexed documents: {len(all_index_docs)}")
+    print(f"  Total evaluation questions: {len(all_eval_questions)}")
+
+    print(f"\n{'=' * 70}")
+    print("VALIDATION")
+    print(f"{'=' * 70}")
+
+    index_content_set = set(d.page_content for d in all_index_docs)
+    missing = 0
+    for eq in all_eval_questions:
+        if eq["gold_passage"] not in index_content_set:
+            print(f"  MISSING: gold passage for '{eq['question'][:60]}...'")
+            missing += 1
+    if missing > 0:
+        print(f"\n  FATAL: {missing} gold passage(s) missing from index. Aborting.")
+        sys.exit(1)
+    print("  PASS: every evaluation question has its gold passage in the index.")
+
+    index_contents = [d.page_content for d in all_index_docs]
+    if len(index_contents) != len(set(index_contents)):
+        dup_count = len(index_contents) - len(set(index_contents))
+        print(f"  FAIL: {dup_count} duplicate paragraph(s) in index. Aborting.")
+        sys.exit(1)
+    print(f"  PASS: all {len(all_index_docs)} indexed documents are unique.")
+    print(f"  PASS: no duplicate paragraph embeddings.")
+
+    print(f"\n{'=' * 70}")
+    print("INDEX BUILDING")
+    print(f"{'=' * 70}")
+
+    print(f"Building FAISS index from {len(all_index_docs)} paragraphs ...")
     vector_store = VectorStore.from_documents(
         all_index_docs, embedding_provider=embedding_provider
     )
     vector_store.save_local(faiss_path)
-    print(f"Index saved to {faiss_path}")
+    print(f"Index saved to {faiss_path} with {vector_store._index.index.ntotal} vectors")
+
+    test_questions = all_eval_questions
+    max_questions = len(test_questions)
 
     retriever = Retriever(vector_store, k=top_k)
 

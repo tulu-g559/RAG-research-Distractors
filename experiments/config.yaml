@@ -1,9 +1,6 @@
-embedding_model: text-embedding-3-small
+embedding_model: intfloat/e5-small-v2
 
 generator_models:
-  gemini:
-    provider: gemini
-    model: gemini-2.5-flash-lite
   gpt41mini:
     provider: openrouter
     model: openai/gpt-4.1-mini
@@ -13,18 +10,17 @@ generator_models:
 
 top_k: 5
 num_questions:
-  # gemini: 30
-  # gpt41mini: 150
-  # llama31: 150
-  gemini: 2
-  gpt41mini: 5
-  llama31: 5
-index_size: 3000
+  gpt41mini: 100
+  llama31: 100
 random_seed: 42
 
-datasets:
-  - squad
-  - hotpot
+dataset_subset:
+  squad:
+    documents: 200
+    questions: 50
+  hotpot:
+    documents: 200
+    questions: 50
 
 distractor_count:
   - 0

@@ -1,8 +1,8 @@
 import random
 import sys
-from collections import Counter, OrderedDict
+from collections import Counter
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Set
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import yaml
+from langchain_core.documents import Document
 
 from src.embeddings import create_embedding_provider
 from src.evaluation import normalize
@@ -38,92 +39,111 @@ def safe(text: str, maxlen: int = 200) -> str:
 def main() -> None:
     config = load_config(CONFIG_PATH)
     embedding_model = config["embedding_model"]
-    raw_num_questions = config["num_questions"]
-    if isinstance(raw_num_questions, dict):
-        max_questions = max(raw_num_questions.values())
-    else:
-        max_questions = raw_num_questions
-    index_size = config.get("index_size", 3000)
     random_seed = config["random_seed"]
-    datasets = config["datasets"]
 
-    random.seed(random_seed)
+    rng = random.Random(random_seed)
     embedding_provider = create_embedding_provider(embedding_model)
     faiss_path = Path(f"data/faiss_{embedding_model.replace('/', '_')}")
+    dataset_subset = config["dataset_subset"]
 
-    load_configs = {
-        "squad": (SquadLoader, index_size + max_questions * 5),
-        "hotpot": (HotpotLoader, index_size + max_questions * 15),
-    }
-
-    all_index_docs = []
-    question_to_gold = OrderedDict()
-
-    for ds_name in datasets:
-        loader_cls, load_limit = load_configs[ds_name]
-        print(f"\nLoading {ds_name} (limit={load_limit})...")
-        docs = loader_cls().load(limit=load_limit)
-        print(f"  {len(docs)} unique paragraphs loaded")
-
-        for doc in docs:
-            all_index_docs.append(doc)
-            for qa in doc.metadata["questions"]:
-                q = qa["question"]
-                if q not in question_to_gold:
-                    question_to_gold[q] = {
-                        "dataset": ds_name,
-                        "question": q,
-                        "answer": qa["answer"],
-                        "doc_id": doc.metadata["doc_id"],
-                        "gold_passage": doc.page_content,
-                    }
+    all_index_docs: List[Document] = []
+    all_eval_questions: List[dict] = []
 
     print(f"\n{'=' * 70}")
-    print(f"INDEX ANALYSIS")
+    print("DATASET SUBSET CONSTRUCTION")
     print(f"{'=' * 70}")
-    print(f"Total unique paragraphs: {len(all_index_docs)}")
-    print(f"Total unique questions: {len(question_to_gold)}")
+
+    loader_map = {
+        "squad": SquadLoader,
+        "hotpot": HotpotLoader,
+    }
+
+    for ds_name, subset_cfg in dataset_subset.items():
+        target_docs = subset_cfg["documents"]
+        target_questions = subset_cfg["questions"]
+
+        print(f"\n{ds_name.upper()}")
+        print("-" * len(ds_name) + "--------")
+
+        loader_cls = loader_map[ds_name]
+        docs = loader_cls().load(limit=None)
+
+        all_questions: List[dict] = []
+        doc_by_content: Dict[str, Document] = {}
+        for doc in docs:
+            doc_by_content[doc.page_content] = doc
+            for qa in doc.metadata["questions"]:
+                all_questions.append({
+                    "dataset": ds_name,
+                    "question": qa["question"],
+                    "answer": qa["answer"],
+                    "doc_id": doc.metadata["doc_id"],
+                    "gold_passage": doc.page_content,
+                })
+
+        selected_questions = rng.sample(all_questions, target_questions)
+        gold_docs: List[Document] = []
+        gold_contents: Set[str] = set()
+        for q in selected_questions:
+            content = q["gold_passage"]
+            if content not in gold_contents:
+                gold_contents.add(content)
+                gold_docs.append(doc_by_content[content])
+
+        filler_needed = target_docs - len(gold_docs)
+        filler_docs: List[Document] = []
+        if filler_needed > 0:
+            candidates = [d for d in docs if d.page_content not in gold_contents]
+            filler_docs = rng.sample(candidates, filler_needed)
+
+        ds_index_docs = gold_docs + filler_docs
+        all_index_docs.extend(ds_index_docs)
+        all_eval_questions.extend(selected_questions)
+
+        print(f"  Questions selected: {target_questions}")
+        print(f"  Unique gold paragraphs: {len(gold_docs)}")
+        print(f"  Random filler paragraphs: {filler_needed}")
+        print(f"  Final indexed paragraphs: {len(ds_index_docs)}")
+
+    print(f"\n  Total indexed documents: {len(all_index_docs)}")
+    print(f"  Total evaluation questions: {len(all_eval_questions)}")
 
     squad_docs = [d for d in all_index_docs if d.metadata.get("dataset") == "squad"]
     hotpot_docs = [d for d in all_index_docs if d.metadata.get("dataset") == "hotpot"]
-    print(f"  SQuAD unique paragraphs: {len(squad_docs)}")
-    print(f"  Hotpot unique paragraphs: {len(hotpot_docs)}")
-
-    squad_contents = [d.page_content for d in squad_docs]
-    hotpot_contents = [d.page_content for d in hotpot_docs]
-    print(f"  SQuAD unique content values: {len(set(squad_contents))}")
-    print(f"  Hotpot unique content values: {len(set(hotpot_contents))}")
-
-    n_squad_dup = len(squad_contents) - len(set(squad_contents))
-    n_hotpot_dup = len(hotpot_contents) - len(set(hotpot_contents))
-    print(f"  SQuAD duplicate content entries: {n_squad_dup}")
-    print(f"  Hotpot duplicate content entries: {n_hotpot_dup}")
-
-    test_questions = list(question_to_gold.values())[:max_questions]
-    print(f"\nTest questions sampled: {len(test_questions)}")
 
     print(f"\n{'=' * 70}")
-    print(f"GOLD PASSAGE COVERAGE CHECK")
+    print("VALIDATION")
     print(f"{'=' * 70}")
+
     index_content_set = set(d.page_content for d in all_index_docs)
-    all_gold_found = 0
-    for qt in test_questions:
-        if qt["gold_passage"] in index_content_set:
-            all_gold_found += 1
-    print(f"Gold passages present in index: {all_gold_found}/{len(test_questions)}")
+    missing = 0
+    for eq in all_eval_questions:
+        if eq["gold_passage"] not in index_content_set:
+            print(f"  MISSING: gold passage for '{eq['question'][:60]}...'")
+            missing += 1
+    if missing > 0:
+        print(f"\n  FATAL: {missing} gold passage(s) missing from index. Aborting.")
+        sys.exit(1)
+    print("  PASS: every evaluation question has its gold passage in the index.")
+
+    index_contents = [d.page_content for d in all_index_docs]
+    if len(index_contents) != len(set(index_contents)):
+        dup_count = len(index_contents) - len(set(index_contents))
+        print(f"  FAIL: {dup_count} duplicate paragraph(s) in index. Aborting.")
+        sys.exit(1)
+    print(f"  PASS: all {len(all_index_docs)} indexed documents are unique.")
+    print(f"  PASS: no duplicate paragraph embeddings.")
+
+    test_questions = all_eval_questions
 
     print(f"\n{'=' * 70}")
-    print(f"LOADING FAISS INDEX FROM {faiss_path}")
+    print(f"BUILDING FAISS INDEX FROM {faiss_path}")
     print(f"{'=' * 70}")
 
-    if not faiss_path.exists():
-        print(f"Building FAISS index from {len(all_index_docs)} paragraphs ...")
-        vector_store = VectorStore.from_documents(all_index_docs, embedding_provider=embedding_provider)
-        vector_store.save_local(faiss_path)
-        print(f"Index saved to {faiss_path}")
-    else:
-        vector_store = VectorStore.load_local(faiss_path, embedding_provider=embedding_provider)
-        print(f"Loaded existing index")
+    print(f"Building FAISS index from {len(all_index_docs)} paragraphs ...")
+    vector_store = VectorStore.from_documents(all_index_docs, embedding_provider=embedding_provider)
+    vector_store.save_local(faiss_path)
+    print(f"Index saved to {faiss_path} with {vector_store._index.index.ntotal} vectors")
 
     index = vector_store._index
     print(f"FAISS index size: {index.index.ntotal}")
@@ -185,23 +205,13 @@ def main() -> None:
             print(f"{k:>5}  {recall_answer[k]:>4}/{n} ({r:>5.1f}%)")
 
     print(f"\n{'=' * 70}")
-    print(f"VERIFICATION OF FIXES")
+    print(f"VERIFICATION")
     print(f"{'=' * 70}")
-    squad_unique = len(set(d.page_content for d in squad_docs))
-    hotpot_unique = len(set(d.page_content for d in hotpot_docs))
-    print(f"1. DEDUPLICATION:")
-    print(f"   SQuAD unique paragraphs: {len(squad_docs)} (all unique: {len(squad_docs) == squad_unique})")
-    print(f"   Hotpot unique paragraphs: {len(hotpot_docs)} (all unique: {len(hotpot_docs) == hotpot_unique})")
-    dedup_ok = (len(squad_docs) == squad_unique) and (len(hotpot_docs) == hotpot_unique)
-    print(f"   -> {'PASS' if dedup_ok else 'FAIL'}: No duplicate content in index")
-    print(f"2. GOLD PASSAGE IN INDEX: {all_gold_found}/{len(test_questions)}")
-    print(f"   -> {'PASS' if all_gold_found == len(test_questions) else 'FAIL'}: All gold passages present")
-    print(f"3. DUPLICATE EMBEDDINGS IN FAISS: {sum(n - 1 for n in stored_content_dups.values())}")
-    print(f"   -> {'PASS' if sum(n - 1 for n in stored_content_dups.values()) == 0 else 'FAIL'}: No duplicate embeddings")
-    print(f"4. GOLD PASSAGE SELECTION:")
-    print(f"   -> PASS: run_evaluation.py now constructs gold_passage from loader metadata")
-    print(f"      instead of using docs_with_scores[0][0]")
-    print(f"5. RETRIEVAL SEARCH: {'PASS' if search_ok else 'BLOCKED (API credits)'}")
+    print(f"1. GOLD PASSAGE IN INDEX: all {len(test_questions)}/{len(test_questions)} present.")
+    print(f"   -> PASS")
+    print(f"2. DEDUPLICATION: all {len(all_index_docs)} indexed documents unique.")
+    print(f"   -> PASS")
+    print(f"3. RETRIEVAL SEARCH: {'PASS' if search_ok else 'BLOCKED (API credits)'}")
 
 
 if __name__ == "__main__":

@@ -12,4 +12,5 @@ numpy
 python-dotenv
 pyyaml
 tqdm
+sentence-transformers
 # jupyter

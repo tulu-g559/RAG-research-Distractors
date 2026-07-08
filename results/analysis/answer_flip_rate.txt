@@ -1,0 +1,37 @@
+    model           distractor_type  distractor_count dataset  flip_rate
+gpt41mini             hard_negative                 1  hotpot       0.00
+gpt41mini             hard_negative                 1   squad       0.00
+gpt41mini             hard_negative                 3  hotpot       0.00
+gpt41mini             hard_negative                 3   squad       0.00
+gpt41mini             hard_negative                 5  hotpot       0.00
+gpt41mini             hard_negative                 5   squad       0.00
+gpt41mini paraphrased_contradiction                 1  hotpot       0.00
+gpt41mini paraphrased_contradiction                 1   squad       0.00
+gpt41mini paraphrased_contradiction                 3  hotpot       0.00
+gpt41mini paraphrased_contradiction                 3   squad       0.00
+gpt41mini paraphrased_contradiction                 5  hotpot       0.00
+gpt41mini paraphrased_contradiction                 5   squad       0.00
+gpt41mini                   topical                 1  hotpot       0.00
+gpt41mini                   topical                 1   squad       0.00
+gpt41mini                   topical                 3  hotpot       0.00
+gpt41mini                   topical                 3   squad       0.00
+gpt41mini                   topical                 5  hotpot       0.00
+gpt41mini                   topical                 5   squad       0.00
+  llama31             hard_negative                 1  hotpot       0.02
+  llama31             hard_negative                 1   squad       0.06
+  llama31             hard_negative                 3  hotpot       0.00
+  llama31             hard_negative                 3   squad       0.06
+  llama31             hard_negative                 5  hotpot       0.02
+  llama31             hard_negative                 5   squad       0.06
+  llama31 paraphrased_contradiction                 1  hotpot       0.00
+  llama31 paraphrased_contradiction                 1   squad       0.02
+  llama31 paraphrased_contradiction                 3  hotpot       0.00
+  llama31 paraphrased_contradiction                 3   squad       0.02
+  llama31 paraphrased_contradiction                 5  hotpot       0.00
+  llama31 paraphrased_contradiction                 5   squad       0.02
+  llama31                   topical                 1  hotpot       0.00
+  llama31                   topical                 1   squad       0.02
+  llama31                   topical                 3  hotpot       0.00
+  llama31                   topical                 3   squad       0.02
+  llama31                   topical                 5  hotpot       0.00
+  llama31                   topical                 5   squad       0.02

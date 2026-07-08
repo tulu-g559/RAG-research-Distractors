@@ -1,0 +1,37 @@
+    model           distractor_type  distractor_count dataset  mean_FFS  mean_F1_drop  mean_baseline_F1
+gpt41mini             hard_negative                 1  hotpot  0.000000      0.000000          0.001052
+gpt41mini             hard_negative                 1   squad  0.000000      0.000000          0.009054
+gpt41mini             hard_negative                 3  hotpot  0.000000      0.000000          0.001052
+gpt41mini             hard_negative                 3   squad  0.000000      0.000000          0.009054
+gpt41mini             hard_negative                 5  hotpot  0.000000      0.000000          0.001052
+gpt41mini             hard_negative                 5   squad  0.000000      0.000000          0.009054
+gpt41mini paraphrased_contradiction                 1  hotpot  0.000000      0.000000          0.001052
+gpt41mini paraphrased_contradiction                 1   squad  0.000000      0.000000          0.009054
+gpt41mini paraphrased_contradiction                 3  hotpot  0.000000      0.000000          0.001052
+gpt41mini paraphrased_contradiction                 3   squad  0.000000      0.000000          0.009054
+gpt41mini paraphrased_contradiction                 5  hotpot  0.000000      0.000000          0.001052
+gpt41mini paraphrased_contradiction                 5   squad  0.000000      0.000000          0.009054
+gpt41mini                   topical                 1  hotpot  0.000000      0.000000          0.001052
+gpt41mini                   topical                 1   squad  0.000000      0.000000          0.009054
+gpt41mini                   topical                 3  hotpot  0.000000      0.000000          0.001052
+gpt41mini                   topical                 3   squad  0.000000      0.000000          0.009054
+gpt41mini                   topical                 5  hotpot  0.000000      0.000000          0.001052
+gpt41mini                   topical                 5   squad  0.000000      0.000000          0.009054
+  llama31             hard_negative                 1  hotpot  0.188080      0.016950          0.082922
+  llama31             hard_negative                 1   squad  0.142296      0.061070          0.371980
+  llama31             hard_negative                 3  hotpot  0.150884     -0.009496          0.082922
+  llama31             hard_negative                 3   squad  0.172876      0.062096          0.371980
+  llama31             hard_negative                 5  hotpot  0.181910      0.007362          0.082922
+  llama31             hard_negative                 5   squad  0.149197      0.034686          0.371980
+  llama31 paraphrased_contradiction                 1  hotpot  0.176166      0.016662          0.082922
+  llama31 paraphrased_contradiction                 1   squad  0.155907      0.051428          0.371980
+  llama31 paraphrased_contradiction                 3  hotpot  0.176166      0.016662          0.082922
+  llama31 paraphrased_contradiction                 3   squad  0.155907      0.051428          0.371980
+  llama31 paraphrased_contradiction                 5  hotpot  0.176166      0.016662          0.082922
+  llama31 paraphrased_contradiction                 5   squad  0.155907      0.051428          0.371980
+  llama31                   topical                 1  hotpot  0.000000      0.000000          0.082922
+  llama31                   topical                 1   squad  0.084163      0.025376          0.371980
+  llama31                   topical                 3  hotpot  0.000000      0.000000          0.082922
+  llama31                   topical                 3   squad  0.086143      0.025620          0.371980
+  llama31                   topical                 5  hotpot  0.000000      0.000000          0.082922
+  llama31                   topical                 5   squad  0.086143      0.025620          0.371980
