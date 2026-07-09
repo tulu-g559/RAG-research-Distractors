@@ -4,10 +4,10 @@ from typing import List
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
-from src.embeddings import EmbeddingProvider, GoogleEmbeddingProvider
+from src.embeddings import EmbeddingProvider, LocalEmbeddingProvider
 
 DEFAULT_PERSIST_DIR = Path("data/faiss")
-DEFAULT_EMBEDDING_MODEL = "gemini-embedding-2"
+DEFAULT_EMBEDDING_MODEL = "intfloat/e5-small-v2"
 
 
 class VectorStore:
@@ -17,7 +17,7 @@ class VectorStore:
         embedding_provider: EmbeddingProvider | None = None,
     ):
         self._index = index
-        self._embedding_provider = embedding_provider or GoogleEmbeddingProvider(DEFAULT_EMBEDDING_MODEL)
+        self._embedding_provider = embedding_provider or LocalEmbeddingProvider(DEFAULT_EMBEDDING_MODEL)
 
     @classmethod
     def from_documents(
@@ -25,7 +25,7 @@ class VectorStore:
         documents: List[Document],
         embedding_provider: EmbeddingProvider | None = None,
     ) -> "VectorStore":
-        provider = embedding_provider or GoogleEmbeddingProvider(DEFAULT_EMBEDDING_MODEL)
+        provider = embedding_provider or LocalEmbeddingProvider(DEFAULT_EMBEDDING_MODEL)
         index = FAISS.from_documents(documents, provider)
         return cls(index, provider)
 
@@ -42,7 +42,7 @@ class VectorStore:
         path: str | Path = DEFAULT_PERSIST_DIR,
         embedding_provider: EmbeddingProvider | None = None,
     ) -> "VectorStore":
-        provider = embedding_provider or GoogleEmbeddingProvider(DEFAULT_EMBEDDING_MODEL)
+        provider = embedding_provider or LocalEmbeddingProvider(DEFAULT_EMBEDDING_MODEL)
         index = FAISS.load_local(
             str(path), provider, allow_dangerous_deserialization=True
         )

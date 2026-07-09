@@ -38,7 +38,7 @@ def main() -> None:
     question = gold.metadata["question"]
 
     print("Loading vector store...")
-    vector_store = VectorStore.load_local(Path("data/faiss_gemini-embedding-2"))
+    vector_store = VectorStore.load_local(Path("data/faiss_intfloat_e5-small-v2"))
 
     injector = DistractorInjector(
         vector_store=vector_store,

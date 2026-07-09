@@ -1,6 +1,10 @@
-# Faithfulness Under Distractors: Evaluating LLM Robustness in Retrieval-Augmented Generation
+# Distractor Injection: A Robustness Probe for Retrieval-Augmented Generation Faithfulness under Retrieval Noise
 
 A systematic framework for measuring how retrieval-augmented generation (RAG) systems withstand distracting passages injected into their context window. This repository provides a modular pipeline for injecting structured distractor passages—topical, hard-negative, and paraphrased-contradiction—and evaluating LLM answer consistency using exact match (EM), token-level F1, answer flip rate, and a novel Faithfulness Fragility Score (FFS).
+
+> **Note on model comparison.** GPT-4.1 mini produced consistently low baseline scores under our prompting and evaluation setup, making robustness comparisons across models inconclusive. The analysis therefore focuses the robustness discussion primarily on Llama-3.1-8B, where baseline performance provided sufficient signal to measure degradation meaningfully. The framework itself is model-agnostic and supports any instruction-tuned LLM accessible via API.
+>
+> **Note on computational constraints.** This evaluation involved 2,000+ LLM inference calls across two API providers. Free-tier API quotas are insufficient for experiments at this scale — rate limits on Gemini (20 requests/day in the free tier) disrupted the paraphrased contradiction distractor generation, and aggregate latency exceeded several hours. Reproducing or extending this work at scale requires either institutional API credits, a local inference setup, or financial contributions to LLM access budgets.
 
 ---
 
@@ -104,13 +108,13 @@ The framework enables researchers to compare model robustness, identify failure 
 
 ### SQuAD v2.0
 
-[Stanford Question Answering Dataset v2.0](https://rajpurkar.github.io/SQuAD-explorer/) combines 100,000+ answerable questions with 50,000 unanswerable questions written by crowdworkers on 500+ Wikipedia articles. This work uses the training split (`train-v2.0.json`) as a document corpus, treating each unique context paragraph as a retrievable document. Each document's metadata aggregates all Q/A pairs that share that paragraph.
+[Stanford Question Answering Dataset v2.0](https://huggingface.co/datasets/rajpurkar/squad_v2) combines 100,000+ answerable questions with 50,000 unanswerable questions written by crowdworkers on 500+ Wikipedia articles. This work uses the training split (`train-v2.0.json`) as a document corpus, treating each unique context paragraph as a retrievable document. Each document's metadata aggregates all Q/A pairs that share that paragraph.
 
 **Loader:** `src/loaders/squad_loader.py` parses the standard SQuAD JSON, deduplicates by paragraph content, and attaches a `questions` list to each `Document` metadata.
 
 ### HotPotQA (Distractor Setting)
 
-[HotPotQA](https://hotpotqa.github.io/) is a multi-hop QA dataset where each question requires reasoning over multiple supporting passages. The *distractor setting* provides 10 passages per question—2 gold supporting facts and 8 distractor paragraphs. This work uses the Hugging Face `hotpotqa/hotpot_qa` dataset with the `"distractor"` configuration.
+[HotPotQA](https://huggingface.co/datasets/hotpotqa/hotpot_qa) is a multi-hop QA dataset where each question requires reasoning over multiple supporting passages. The *distractor setting* provides 10 passages per question—2 gold supporting facts and 8 distractor paragraphs. This work uses the Hugging Face `hotpotqa/hotpot_qa` dataset with the `"distractor"` configuration.
 
 **Loader:** `src/loaders/hotpot_loader.py` loads from disk (via `datasets.load_from_disk`), expands each sample's 10 context paragraphs into individual `Document` objects, and deduplicates by paragraph text while aggregating all associated Q/A pairs.
 
@@ -124,7 +128,7 @@ Three embedding providers are available via the factory `src/embeddings.py:creat
 
 | Model | Provider Class | Backend | Use Case |
 |-------|---------------|---------|----------|
-| `intfloat/e5-small-v2` | `LocalEmbeddingProvider` | SentenceTransformers (local CPU/GPU) | Default—384-dim, fast, no API cost |
+| `intfloat/e5-small-v2` | `LocalEmbeddingProvider` | SentenceTransformers (local CPU/GPU) | **Default**—384-dim, fast, no API cost |
 | `gemini-embedding-2` | `GoogleEmbeddingProvider` | Google Gemini API | Cloud-based, higher dimensionality |
 | `text-embedding-3-small` | `OpenAIEmbeddingProvider` | OpenRouter → OpenAI API | Cloud-based via OpenRouter |
 

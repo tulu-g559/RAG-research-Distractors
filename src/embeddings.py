@@ -98,7 +98,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         return embedding.tolist()
 
 
-def create_embedding_provider(model_name: str = "gemini-embedding-2") -> EmbeddingProvider:
+def create_embedding_provider(model_name: str = "intfloat/e5-small-v2") -> EmbeddingProvider:
     if model_name == "gemini-embedding-2":
         return GoogleEmbeddingProvider(model=model_name)
     if model_name == "text-embedding-3-small":
