@@ -100,7 +100,7 @@ The framework enables researchers to compare model robustness, identify failure 
     ├── api_responses.json            # LLM response cache
     └── distractor_contradictions.json # Contradiction distractor cache
 ```
-
+#### **Note:** Add the data folder with specific structure in the `raw` subdirectory
 ---
 
 ## Datasets
@@ -472,6 +472,8 @@ Modify `experiments/config.yaml` to adjust:
 - **Retrieval:** Adjust `top_k`.
 - **Reproducibility:** Change `random_seed`.
 
+#### **Note:** Add the data folder with specific structure in the `raw` subdirectory
+
 ---
 
 ## References
@@ -483,4 +485,4 @@ Modify `experiments/config.yaml` to adjust:
 - Goodfellow, I. J., Shlens, J., & Szegedy, C. (2014). *Explaining and Harnessing Adversarial Examples.* ICLR.
 - Wang, L., et al. (2022). *Text Embeddings by Weakly-Supervised Contrastive Pre-training.* arXiv:2212.03533.
 
-others stated in paper
+... others stated in paper
