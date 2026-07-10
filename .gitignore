@@ -1,7 +1,6 @@
 venv/
 .env
 data/
-cache/
 
 src/__pycache__/embeddings.cpython-312.pyc
 src/__pycache__/vectorstore.cpython-312.pyc

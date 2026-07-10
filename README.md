@@ -20,7 +20,6 @@ A systematic framework for measuring how retrieval-augmented generation (RAG) sy
 - [Experiment Design](#experiment-design)
 - [Results & Artifacts](#results--artifacts)
 - [Reproducing Experiments](#reproducing-experiments)
-- [Citation](#citation)
 
 ---
 
@@ -257,6 +256,9 @@ A binary indicator: 1 if the normalized prediction exactly equals the normalized
 **Formula (across N questions):**
 
 $$\text{EM} = \frac{1}{N} \sum_{i=1}^{N} \mathbb{1}[\text{normalize}(p_i) = \text{normalize}(g_i)]$$
+```
+EM = (number of predictions that match gold exactly, after normalization) / (total number of examples)
+```
 
 ### F1 Score
 
@@ -430,8 +432,7 @@ The script:
 
 ```bash
 # Clone the repository
-git clone <repo-url>
-cd RAG-research-Distractors
+git clone https://github.com/tulu-g559/RAG-research-Distractors.git
 
 # Create virtual environment
 python -m venv venv
@@ -473,21 +474,6 @@ Modify `experiments/config.yaml` to adjust:
 
 ---
 
-## Citation
-
-If you use this framework in your research, please cite:
-
-```bibtex
-@misc{rag-distractors-2025,
-  title = {Faithfulness Under Distractors: {A} Framework for Evaluating {LLM} Robustness in Retrieval-Augmented Generation},
-  author = {Your Name},
-  year = {2025},
-  howpublished = {\url{https://github.com/anomalyco/RAG-research-Distractors}}
-}
-```
-
----
-
 ## References
 
 - Rajpurkar, P., Jia, R., & Liang, P. (2018). *Know What You Don't Know: Unanswerable Questions for SQuAD.* ACL.
@@ -496,3 +482,5 @@ If you use this framework in your research, please cite:
 - Geirhos, R., et al. (2020). *Shortcut Learning in Deep Neural Networks.* Nature Machine Intelligence.
 - Goodfellow, I. J., Shlens, J., & Szegedy, C. (2014). *Explaining and Harnessing Adversarial Examples.* ICLR.
 - Wang, L., et al. (2022). *Text Embeddings by Weakly-Supervised Contrastive Pre-training.* arXiv:2212.03533.
+
+others stated in paper
